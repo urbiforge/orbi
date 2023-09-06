@@ -1,0 +1,63 @@
+class Unreal.UObject{};
+echo("go");
+echo(Unreal.rootDir);
+while(true) {Unreal.checkParseResult();1;2},
+function getFunctionSignature(f)
+{
+	nonInterruptible();
+	import lang;
+	var res = List.new();
+	var e;
+	try{f(1,2,3,4,5,6,7,8,9,10,11,12,13)} catch(var ee) {e =ee};
+	var nargs = e.min;
+	var args = [this] + [nil] * nargs;
+	for| (var i in nargs)
+	{
+		try { f.apply(args)} catch(var ee) {e =ee};
+		var etn = e.exception.expectedTypes[0];
+		var etv = lang.getSlotValue(etn);
+		res.insertBack(etv);
+		args[i+1] = etv;
+	};
+	res;
+}|;
+function parseClasses(p)
+{
+	nonInterruptible();
+	var res = Dictionary.new();
+	for| (var cn: p.localSlotNames())
+	{
+		var c = p.getSlotValue(cn);
+		var r = [List.new(), List.new()];
+		for| (var vn:c.localSlotNames())
+		{
+			if (vn == "type") continue;
+			var v = c.getSlotValue(vn);
+			if (v.isA(Float) || v.isA(String) || v.isA(List)) 
+				r[0].insertBack([vn, v])
+			else if (v.isA(Executable))
+			{
+			    if (v.hasLocalSlot("signature"))
+			        r[1].insertBack([vn, v.signature])
+			    else if (v.hasLocalSlot("returnType"))
+			        r[1].insertBack([vn, getFunctionSignature(v) + [v.returnType]])
+			}
+		};
+		res[cn] = r;
+	};
+	res
+}|;
+var classes = Object.new();
+try{
+	nonInterruptible();
+	do(classes)
+	{
+		loadFile(Unreal.rootDir + "/Content/urbi/classes.u");
+	};
+	var pc = parseClasses(classes);
+	var uobjects.parseResultString = pc.asString()|
+	uobjects.parseResult = pc;
+}
+catch(var e) {
+	uobjects.parseResult = e.asString();
+};

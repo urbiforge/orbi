@@ -1,0 +1,402 @@
+class uobjects.Quaternion
+{
+    var val = Vector.new([1,0,0,0]);
+    function init(wl=1,x=0,y=0,z=0)
+    {
+        if (wl.isA(List))
+            val = Vector.new(wl)
+        else if (wl.isA(Vector))
+            val = wl
+        else
+            val = Vector.new([wl,x,y,z])
+    };
+    function inverse()
+    {
+        Quaternion.new(val[0], -val[1],-val[2], -val[3])
+    };
+    function multiply(q)
+    {
+        var a = val|
+        var b = q.val|
+        Quaternion.new(
+            a[0]*b[0] - a[1]*b[1] - a[2]*b[2] - a[3]*b[3],
+            a[0]*b[1] + a[1]*b[0] - a[2]*b[3] + a[3]*b[2],
+            a[0]*b[2] + a[1]*b[3] + a[2]*b[0] - a[3]*b[1],
+            a[0]*b[3] - a[1]*b[2] + a[2]*b[1] + a[3]*b[0],
+        )
+    };
+    function rotate(v)
+    {
+        var qp = Quaternion.new(0, v[0], v[1], v[2])|
+        var res = inverse().multiply(qp).multiply(this)|
+        Vector.new(res.val[1], res.val[2], res.val[3])
+    };
+    function euler()
+    {
+        var q = val|
+        Vector.new([
+            Math.atan2(2*(q[0]*q[1]+q[2]*q[3]), q[0]**2 -q[1]**2 -q[2]**2 + q[3]**2),
+            Math.asin(2*(q[0]*q[2]-q[1]*q[3])),
+            Math.atan2(2*(q[0]*q[3]+q[1]*q[2]), q[0]**2 +q[1]**2 -q[2]**2 - q[3]**2),
+        ])
+    };
+    function toUnreal()
+    {
+        [val[1], val[2], val[3], val[0]]
+    };
+}|;
+class uobjects.Transform
+{
+    var translation;
+    var rotation;
+    var scale;
+    function init(v=nil)
+    {
+        if (v.isNil)
+        {
+            translation = Vector.new([0,0,0])|
+            rotation = Quaternion.new()|
+            scale = Vector.new([1,1,1])
+        }
+        else
+        {
+            rotation = Quaternion.new(v[0]) |
+            translation = Vector.new(v[1]) |
+            scale = Vector.new(v[2])
+        }
+    };
+    function toUnreal()
+    {
+        [
+            rotation.toUnreal(),
+            translation.asList(),
+            scale.asList()
+        ]
+    };
+    function translate(vx, y=nil, z=nil)
+    {
+        if (!vx.isA(Vector))
+            vx = Vector.new(vx, y, z)|
+        translation += vx |
+        this
+    };
+}|;
+if (!uobjects.hasSlot("unrealEvents"))
+{
+    var uobjects.unrealEvents = Object.new();
+    var uobjects.unrealWrites = Object.new();
+    var uobjects.unrealEvents.functionCall = Object.new();
+    uobjects.unrealEvents.functionCall->oset = function(val)
+    {
+        detach({
+                var uid = val[1];
+                var fname = val[0];
+                var args = val[2];
+                echo("INVOKE " + fname);
+                var fcomps = fname.split(".");
+                var start = Lobby.systemLobby;
+                for|(var l: Lobby.lobbies)
+                {
+                    if (l.hasSlot(fcomps[0]))
+                    {
+                        start = l;
+                        break;
+                    }
+                };
+                var obj = start;
+                var prev = obj;
+                for|(var c: fcomps)
+                {
+                    var next = obj.getSlotValue(c);
+                    prev = obj;
+                    obj = next;
+                };
+                echo("MAKE CALL");
+                var result = obj.apply([prev] + args);
+                echo("RCR");
+                Unreal.registerCallResult(uid, result);
+                echo("CALL DONE");
+        })
+    }
+}|;
+if (Unreal.hasSlot("UObject"))
+    Unreal.removeSlot("UObject")|;
+class Unreal.ETriggerEvent {
+    var None = 0;
+    var Triggered = 1;
+    var Started = 2;
+    var Ongoing = 3;
+    var Canceled = 4;
+    var Completed = 5;
+}|;
+class Unreal.EInputEvent {
+    var Pressed        =0;
+    var Released       =1;
+    var Repeat         =2;
+    var DoubleClick    =3;
+    var Axis           =4;
+}|;
+function Unreal.convertArg(a)
+{
+    if (a.isA(Unreal.UObject))
+        a.ptr
+    else if (a.isA(Vector))
+        a.asList()
+    else if(a.isA(Transform))
+        a.toUnreal()
+    else
+        a
+}|;
+function Unreal.convertArgs(args)
+{
+    for (var i in args.size) args[i] = convertArg(args[i])
+}|;
+function Unreal.getReturnWrapper(t) {
+    if (t == "Vector") function(x) { Vector.new(x)}
+    else if (t == "Transform") function(x) { Transform.new(x)}
+    else if (t == "UObject") function(x) {
+        if (Unreal.UObject.objectTracker.has(x))
+            Unreal.UObject.objectTracker[x]
+        else
+            Unreal.UObject.new(x)
+    }
+    else function(x) {x}
+}|;
+class Unreal.UObject {
+    var objectTracker = Dictionary.new();
+    var models = Dictionary.new();
+    function bindMethods(ptr)
+    {
+        var mns = Unreal.listFields(ptr, "");
+        for| (var m in mns)
+        {
+            if (!this.hasSlot(m))
+            {
+                var rt = Unreal.getFunctionReturnType(ptr, m)|
+                var rwrap = Unreal.getReturnWrapper(rt)|
+                this.setSlotValue(m, function(args[]) {
+                    Unreal.convertArgs(args)|
+                    var res = Unreal.callFunction(this.ptr, "", m, args)|
+                    if (call.code.hasLocalSlot("raw"))
+                        res
+                    else
+                        rwrap(res)
+                })
+            }
+        }
+    };
+    function bindProperties(ptr)
+    {
+        var pns = Unreal.listData(ptr, "");
+        for| (var p in pns)
+        {
+            if (this.hasSlot(p)) this.removeSlot(p)|
+            this.setSlotValue(p, 0)|
+            var ptype = Unreal.getPropertyType(ptr, p)|
+            var rw = Unreal.getReturnWrapper(ptype)|
+            this.getSlot(p).oget = function() {
+                rw(uobjects.Unreal.getPropertyValue(this.ptr, "", p))
+            }|
+            this.getSlot(p).oset = function(v) {
+                uobjects.Unreal.setPropertyValue(this.ptr, "", p,
+                    uobjects.Unreal.convertArg(v))
+            }
+        }|
+        pns
+    };
+    function bindInput(name, what)
+    {
+        var n = Unreal.bindInput(ptr, name, what);
+        unrealWrites.setSlotValue(n, 0);
+        this.setSlotValue(name+ "_" + what.asString(), unrealWrites.getSlot(n).changed)
+    };
+    function bindEnhancedInput(name, what)
+    {
+        var k = name + "_" + what.asString();
+        if (hasLocalSlot(k))
+            getSlotValue(k)
+        else
+        {
+            var n = Unreal.bindEnhancedInput(ptr, name, what);
+            unrealWrites.setSlotValue(n, 0);
+            var ev = Event.new();
+            at(unrealWrites.getSlot(n).changed?)
+                ev!(unrealWrites.getSlotValue(n));
+            this.setSlotValue(k,ev)
+        }
+    };
+    function bindDelegate(name)
+    {
+        var n = Unreal.bindDelegate(this.ptr, name);
+        var ev = Event.new();
+        at (unrealEvents.getSlot(n).changed?)
+        {
+            ev.emit.apply([ev] + unrealEvents.getSlotValue(n))
+        };
+        this.setSlotValue(name, ev)
+    };
+    function init(obj, comp="")
+    {
+        if (obj != "" && obj[0] == "$" && comp == "")
+            var this.ptr = obj
+        else
+            var this.ptr = Unreal.getActorComponentPtr(obj, comp);
+        if (!hasSlot("cls"))
+        { // bind methods to level above uobject
+            var cur = this;
+            while(!(cur.protos[0]===Unreal.UObject))
+                cur = cur.protos[0];
+            var cur.cls =  Unreal.getClass(ptr);
+            cur.bindMethods(ptr);
+            cur.bindProperties(ptr);
+            if (cur.hasSlot("GetTransform"))
+            {
+                var cur.transform = 0;
+                cur.transform->oget = function() { GetTransform()};
+                cur.transform->oset = function(t)  { K2_SetActorTransform(t, false, "", true)};
+            };
+        }
+    };
+    function listComponents()
+    {
+        Unreal.listComponents(ptr)
+    };
+    function getComponent(name)
+    {
+        Unreal.UObject.new(ptr, name)
+    };
+    function spawn(clsName, ptr, withTag)
+    {
+    try{
+        var cls = uobjects.getSlotValue(clsName);
+        var obj = cls.new.apply([cls, ptr]);
+        echo(obj.hasSlot("startTag"));  
+        var obj.startTag = Tag.new(clsName+"_"+ptr);
+        Unreal.setSlotValue(clsName+"_"+ptr, obj);
+        objectTracker[ptr] = obj;
+        if (withTag)
+            detach({obj.startTag: obj.start()})
+        else
+            detach({obj.start()});
+        } catch(var e)
+        {
+            echo("Exception spawning a " + clsName + ": " + e.asString());
+        }
+    };
+    function despawn(clsName, ptr)
+    {
+        try {
+            objectTracker.erase(ptr);
+            var n = clsName+"_"+ptr;
+            Unreal.getSlotValue(n).tag.stop();
+            Unreal.removeSlot(n);
+        } catch(var e){}
+    };
+    function slotsLike(query)
+    {
+        var sn = allSlotNames();
+        var res = List.new();
+        for| (var n in sn)
+           if (n.toLower().find(query.toLower()) != -1)
+            res.insertBack(n);
+        res
+    };
+    function signature(fname)
+    {
+        Unreal.getFunctionSignature(ptr, "", fname)
+    };
+    function raycast(start, end, ignoreSelf = true, ignores=[], channel=0, complex=false)
+    {
+        var res = Unreal.library.LineTraceSingle(ptr,start, end, channel, complex, ignores, 0, "@fill", ignoreSelf, "","",0)|
+        if (res[0] == 0)
+           nil
+        else
+        {
+            var dist = res[1][2]|
+            var hitptr = res[1][16]| // [0];
+            if (objectTracker.has(hitptr))
+              [objectTracker[hitptr], dist]
+            else
+                [Unreal.UObject.new(hitptr), dist]
+        }
+    };
+    function raycastForward(dist, ignores=[], channel=0, complex=false)
+    {
+        var start = K2_GetActorLocation()|
+        var end =  (Vector.new(start) + Vector.new(GetActorForwardVector())*dist).asList()|
+        raycast(start, end, true, ignores, channel, complex)
+    };
+    function copy(transform)
+    {
+        holdPtr(Unreal.bridge.spawnActor(cls, transform, this))
+    };
+    function safeCopy(transform)
+    {
+        var res = copy(transform)|
+        var s = res.getComponent("StaticMeshComponent0")|
+        //s.SetEnableGravity(false);
+        s.SetAllPhysicsLinearVelocity([0,0,0], false)|
+        res.K2_SetActorTransform(transform, false, "", true)|
+        //res.K2_TeleportTo(transform.translation, transform.rotation.euler(), true)| // fixme rotation
+        res
+    };
+    function setMaterialDynamic(idx)
+    {
+        //var dmc = Unreal.UObject.new(Unreal.instantiate(Unreal.findClass("MaterialInstanceDynamic")));
+        //var dm = dmc.Create(GetMaterail(idx), ptr);
+        CreateDynamicMaterialInstance(idx, GetMaterial(idx), "None")
+    };
+}|;
+var Unreal.library = Unreal.UObject.new(Unreal.instantiate(Unreal.findClass("KismetSystemLibrary")));
+var Unreal.library.getSlotValue("LineTraceSingle").raw = true;
+Unreal.holdPtr(Unreal.library.ptr);
+for|(var c: Unreal.listActors())
+    if (c.find("UrbiBridge")!= -1)
+        var Unreal.bridge = Unreal.UObject.new(c);
+
+function uobjects.holdPtr(v)
+{
+    if (v.isA(String))
+        Unreal.holdPtr(v)
+    else
+        Unreal.holdPtr(v.ptr)
+    |v
+}|;
+
+function processProperties(p)
+{
+	nonInterruptible();
+	for| (var cn: p.localSlotNames())
+	{
+		var c = p.getSlotValue(cn);
+		for| (var vn:c.localSlotNames())
+		{
+			if (vn == "type") continue;
+			var v = c.getSlotValue(vn);
+			if (v.isA(Float) || v.isA(String)) 
+			{
+                var s = c.getSlot(vn);
+                s.oset = function(val) { uobjects.Unreal.setPropertyValue(ptr, "", vn, val)};
+                s.oget = function(val) { uobjects.Unreal.getPropertyValue(ptr, "", vn)};
+            }
+		};
+	}
+}|;
+var classes = Object.new()|
+do(classes)
+{
+	loadFile(Unreal.rootDir + "/Content/urbi/classes.u");
+}|
+processProperties(classes)|;
+//relocate
+for| (var cn: classes.localSlotNames())
+{
+    if (cn == "type") continue;
+    uobjects.setSlotValue(cn, classes.getSlotValue(cn));
+}|
+removeSlot("classes")|
+detach({
+  at(System.tick->changed?) Unreal.processPendingEvents()
+})|
+var Unreal = uobjects.Unreal|
+echo("All setup")|;
