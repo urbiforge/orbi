@@ -6,6 +6,8 @@ Head over to [the manual](manual.md) for more informations and installation inst
 
 Useful links:
 
-[urbiscript page](https://github.com/urbiforge/urbi)
+[urbiscript on Github](https://github.com/urbiforge/urbi)
 
-[urbiscript manual](https://github.com/urbiforge/urbi/blob/master/doc/urbi-sdk.pdf)
+[urbiscript PDF manual](https://github.com/urbiforge/urbi/blob/master/doc/urbi-sdk.pdf)
+
+[urbiscript HTML manual](https://urbiforge.github.io/urbi/index.html)

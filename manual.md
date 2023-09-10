@@ -57,7 +57,7 @@ When called it will scale the target Actor by 0.5 on one dimension, move it, and
 
 ## Installing the plugin
 
-Download the plugin archive, and extract it into your project's 'Plugins' directory, creating it if needed. after that you should have one folder 'Plugins/urbi'.
+Download the plugin archive from the 'releases' section of the main github page, and extract it into your project's 'Plugins' directory, creating it if needed. after that you should have one folder 'Plugins/urbi'.
 
 ## Plugin set-up
 
